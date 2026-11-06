@@ -3,18 +3,21 @@
 #include "Windows.h"
 
 #include <optional>
+#include <string>
 
 namespace core::paths {
-    HMODULE GetPluginHandle() {
+    // handle of the plugin DLL
+    static HMODULE GetPluginHandle() {
         HMODULE moduleHandle = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                            reinterpret_cast<const wchar_t*>(&GetPluginHandle), &moduleHandle);
         return moduleHandle;
     }
 
-    std::filesystem::path GetModulePath(HMODULE moduleHandle) {
-        constexpr DWORD kMaxPathLength = 0x8000;
-        std::wstring buffer(kMaxPathLength, L'\0');
+    // empty on failure
+    static std::filesystem::path GetModulePath(HMODULE moduleHandle) {
+        constexpr DWORD MaxPathLength = 0x8000;
+        std::wstring buffer(MaxPathLength, L'\0');
 
         const DWORD length = GetModuleFileNameW(moduleHandle, buffer.data(), static_cast<DWORD>(buffer.size()));
 
@@ -43,8 +46,8 @@ namespace core::paths {
 
     // <Steam library>\runtime\media\Judgment.exe
     std::filesystem::path GetGameExePath() {
-        static const auto exe_path = GetModulePath(nullptr);
-        return exe_path;
+        static const auto exePath = GetModulePath(nullptr);
+        return exePath;
     }
 
     // <Steam library>\runtime\media
