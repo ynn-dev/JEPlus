@@ -1,0 +1,8 @@
+# C++ and cmake stuff
+build/
+
+# python scripts stuff
+*.pyc
+
+# editor stuff
+.vscode/
