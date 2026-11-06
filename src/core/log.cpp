@@ -3,7 +3,6 @@
 #include "core/paths.h"
 
 #include <chrono>
-#include <memory>
 
 #include <spdlog/sinks/basic_file_sink.h>
 
@@ -19,10 +18,6 @@ namespace core::log {
 #endif
         spdlog::flush_every(std::chrono::seconds(3));
         spdlog::flush_on(spdlog::level::err);
-    }
-
-    std::shared_ptr<spdlog::logger> Log() {
-        return spdlog::default_logger();
     }
 
 }  // namespace core::log
