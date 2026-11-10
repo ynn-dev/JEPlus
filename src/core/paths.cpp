@@ -51,7 +51,7 @@ namespace core::paths {
     }
 
     // <Steam library>\runtime\media
-    static std::filesystem::path GetGameDirectory() {
+    std::filesystem::path GetGameDirectory() {
         static const auto directory = GetModuleDirectory(nullptr).value_or(std::filesystem::path{});
         return directory;
     }

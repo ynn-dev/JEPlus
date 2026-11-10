@@ -1,0 +1,205 @@
+#include "nvidia/streamline.h"
+
+#include "core/log.h"
+#include "core/paths.h"
+#include "engine/engine.h"
+
+#include <Windows.h>
+#include <d3d12.h>
+#include <dxgi1_2.h>
+
+#include <sl.h>
+#include <sl_helpers.h>
+#include <sl_security.h>
+
+#include <array>
+#include <cstdint>
+#include <string>
+#include <utility>
+
+namespace nvidia::streamline {
+    static PFun_slIsFeatureLoaded* slIsFeatureLoaded = nullptr;
+    static PFun_slSetFeatureLoaded* slSetFeatureLoaded = nullptr;
+
+    // keep both the game and the streamline swapchain to allow switching between them
+    static IDXGIFactory2* nativeFactory = nullptr;
+    static IDXGIFactory2* upgradedFactory = nullptr;
+
+    static bool Succeeded(const char* call, sl::Result result) {
+        if (result != sl::Result::eOk) {
+            spdlog::error("Streamline: {} failed: {}", call, sl::getResultAsStr(result));
+            return false;
+        }
+
+        return true;
+    }
+
+    template <typename Function>
+    static Function* GetExport(HMODULE module, const char* name) {
+        return reinterpret_cast<Function*>(GetProcAddress(module, name));
+    }
+
+    // slInit doesn't always leave a requested feature loaded, so load it here if needed
+    static bool EnsureLoaded(sl::Feature feature, const char* name) {
+        bool loaded = false;
+
+        if (slIsFeatureLoaded(feature, loaded) == sl::Result::eOk && loaded) {
+            return true;
+        }
+
+        return Succeeded(name, slSetFeatureLoaded(feature, true));
+    }
+
+    static void Start() {
+        auto* device = engine::GetDevice();
+        auto* factory = engine::GetFactory();
+
+        if (device == nullptr || factory == nullptr) {
+            spdlog::error("Streamline: the game's D3D12 device or DXGI factory doesn't exist yet");
+            return;
+        }
+
+        const auto modDirectory = core::paths::GetAsiPluginDirectory();
+        const auto pluginDirectory = modDirectory / L"bin";
+        const auto interposerPath = pluginDirectory / L"sl.interposer.dll";
+
+        if (!std::filesystem::is_regular_file(interposerPath)) {
+            spdlog::error("Streamline: {} is missing", interposerPath.string());
+            return;
+        }
+
+        // NVIDIA recommends it
+        if (!sl::security::verifyEmbeddedSignature(interposerPath.c_str())) {
+            spdlog::error("Streamline: {} isn't signed by NVIDIA, so it won't be loaded", interposerPath.string());
+            return;
+        }
+
+        const HMODULE module = LoadLibraryW(interposerPath.c_str());
+
+        if (module == nullptr) {
+            spdlog::error("Streamline: couldn't load {} (error {})", interposerPath.string(), GetLastError());
+            return;
+        }
+
+        const auto slInit = GetExport<PFun_slInit>(module, "slInit");
+        const auto slSetD3DDevice = GetExport<PFun_slSetD3DDevice>(module, "slSetD3DDevice");
+        const auto slIsFeatureSupported = GetExport<PFun_slIsFeatureSupported>(module, "slIsFeatureSupported");
+        const auto slUpgradeInterface = GetExport<PFun_slUpgradeInterface>(module, "slUpgradeInterface");
+        slIsFeatureLoaded = GetExport<PFun_slIsFeatureLoaded>(module, "slIsFeatureLoaded");
+        slSetFeatureLoaded = GetExport<PFun_slSetFeatureLoaded>(module, "slSetFeatureLoaded");
+
+        if (slInit == nullptr || slSetD3DDevice == nullptr || slIsFeatureSupported == nullptr ||
+            slUpgradeInterface == nullptr || slIsFeatureLoaded == nullptr || slSetFeatureLoaded == nullptr) {
+            spdlog::error("Streamline: sl.interposer.dll lacks functions that SDK {}.{}.{} needs", SL_VERSION_MAJOR,
+                          SL_VERSION_MINOR, SL_VERSION_PATCH);
+            return;
+        }
+
+        const std::wstring pluginPath = pluginDirectory.wstring();
+        const std::wstring gamePath = core::paths::GetGameDirectory().wstring();
+        const std::wstring logPath = modDirectory.wstring();
+        const wchar_t* pluginPaths[] = {pluginPath.c_str(), gamePath.c_str()};
+
+        // make streamline only load reflex and FG as SR is already loaded by the game own wrapper
+        static constexpr std::array Features{sl::kFeatureDLSS_G, sl::kFeatureReflex};
+
+        sl::Preferences preferences{};
+#ifdef NDEBUG
+        preferences.logLevel = sl::LogLevel::eDefault;
+#else
+        preferences.logLevel = sl::LogLevel::eVerbose;
+#endif
+        preferences.pathsToPlugins = pluginPaths;
+        preferences.numPathsToPlugins = static_cast<uint32_t>(std::size(pluginPaths));
+        preferences.pathToLogsAndData = logPath.c_str();
+
+        // enable the factory proxy to allow to easily pointer swap the factory
+        // TODO: check other flags
+        preferences.flags |= sl::PreferenceFlags::eUseDXGIFactoryProxy;
+        preferences.featuresToLoad = Features.data();
+        preferences.numFeaturesToLoad = static_cast<uint32_t>(Features.size());
+        preferences.applicationId = 0x06084F03;  // TODO: check if it's right
+        preferences.renderAPI = sl::RenderAPI::eD3D12;
+
+        if (!Succeeded("slInit", slInit(preferences, sl::kSDKVersion)) ||
+            !Succeeded("slSetD3DDevice", slSetD3DDevice(device))) {
+            return;
+        }
+
+        LUID luid = device->GetAdapterLuid();
+        sl::AdapterInfo adapter{};
+        adapter.deviceLUID = reinterpret_cast<uint8_t*>(&luid);
+        adapter.deviceLUIDSizeInBytes = sizeof(luid);
+
+        const auto reflexSupport = slIsFeatureSupported(sl::kFeatureReflex, adapter);
+        const auto frameGenerationSupport = slIsFeatureSupported(sl::kFeatureDLSS_G, adapter);
+        spdlog::info("Streamline: Reflex support: {}, DLSS Frame Generation support: {}",
+                     sl::getResultAsStr(reflexSupport), sl::getResultAsStr(frameGenerationSupport));
+
+        if (reflexSupport != sl::Result::eOk) {
+            spdlog::warn("Streamline: Reflex isn't supported on this GPU");
+            return;
+        }
+
+        if (!EnsureLoaded(sl::kFeatureReflex, "loading Reflex")) {
+            return;
+        }
+
+        // RTX 20 and 30 series: Reflex works, but there's no DLSS Frame Generation, so the swapchain is never switched
+        // TODO: check if integrating something like MFG unlocker in the mod could work, or atleast allow support for it
+        if (frameGenerationSupport != sl::Result::eOk) {
+            spdlog::info("Streamline ready: Reflex only");
+            return;
+        }
+
+        if (!EnsureLoaded(sl::kFeatureDLSS_G, "loading DLSS Frame Generation")) {
+            return;
+        }
+
+        // the game keeps using its own factory for now
+        IDXGIFactory2* upgraded = factory;
+
+        if (!Succeeded("slUpgradeInterface on the DXGI factory",
+                       slUpgradeInterface(reinterpret_cast<void**>(&upgraded)))) {
+            return;
+        }
+
+        nativeFactory = factory;
+        upgradedFactory = upgraded;
+        spdlog::debug("Streamline: factory {} upgraded to {}", static_cast<void*>(nativeFactory),
+                      static_cast<void*>(upgradedFactory));
+        spdlog::info("Streamline ready: Reflex and DLSS Frame Generation");
+    }
+
+    bool UseUpgradedFactory() {
+        if (upgradedFactory == nullptr) {
+            return false;
+        }
+
+        if (engine::GetFactory() == upgradedFactory) {
+            return true;
+        }
+
+        if (engine::GetFactory() != nativeFactory) {
+            return false;
+        }
+
+        upgradedFactory->AddRef();
+
+        if (!engine::SetFactory(upgradedFactory)) {
+            upgradedFactory->Release();
+            return false;
+        }
+
+        spdlog::info("Streamline: the engine now creates its swapchain through the upgraded factory");
+        return true;
+    }
+
+    void Init() {
+        static bool attempted = false;
+
+        if (!std::exchange(attempted, true)) {
+            Start();
+        }
+    }
+}  // namespace nvidia::streamline

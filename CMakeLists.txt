@@ -44,6 +44,18 @@ CPMAddPackage("gh:gabime/spdlog@1.17.0")
 CPMAddPackage("gh:stephenberry/glaze@9.1.0")
 CPMAddPackage("gh:cursey/safetyhook@0.7.0")
 
+# headers only
+CPMAddPackage(
+    NAME streamline
+    GITHUB_REPOSITORY NVIDIA-RTX/Streamline
+    GIT_TAG v2.14.16
+    DOWNLOAD_ONLY YES
+)
+
+target_include_directories(JEPlus SYSTEM PRIVATE
+    "${streamline_SOURCE_DIR}/include"
+)
+
 target_link_libraries(JEPlus PRIVATE
     spdlog::spdlog
     glaze::glaze

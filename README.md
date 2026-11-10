@@ -21,6 +21,9 @@ JEPlus is built with these open-source libraries:
 - [spdlog](https://github.com/gabime/spdlog)
 - [Glaze](https://github.com/stephenberry/glaze)
 - [SafetyHook](https://github.com/cursey/safetyhook)
+- [NVIDIA Streamline](https://github.com/NVIDIA-RTX/Streamline)
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for their licenses and the NVIDIA runtime files.
 
 ## License
 

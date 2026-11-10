@@ -8,6 +8,7 @@
 #include "engine/engine.h"
 #include "engine/frame_hooks.h"
 #include "engine/offsets.h"
+#include "engine/swapchain_hooks.h"
 
 #include <array>
 #include <cstdint>
@@ -88,7 +89,8 @@ static bool CheckCallSites() {
                       GetCallAddress(frameBuild + RenderBeginCall) == GetAddress(0x174C1E0));
     ok &= RequireSite("Present call", BytesMatch(presentRoutine + PresentCall, PresentCallBytes));
     ok &= RequireSite("after Present", BytesMatch(presentRoutine + AfterPresent, AfterPresentBytes));
-    ok &= RequireSite("CreateSwapChainForHwnd call", BytesMatch(swapchainCreate + 0x134, CreateSwapChainCallBytes));
+    ok &= RequireSite("CreateSwapChainForHwnd call",
+                      BytesMatch(swapchainCreate + CreateSwapChainCall, CreateSwapChainCallBytes));
 
     if (ok) {
         spdlog::info("All call sites checked");
@@ -147,7 +149,10 @@ static DWORD WINAPI MainThread(void*) {
         return 0;
     }
 
-    if (!engine::frame_hooks::Install()) {
+    // config::Load turns Reflex on whenever Frame Generation is enabled, so Reflex off means neither feature is wanted
+    const bool startStreamline = config.nv_reflex_mode != core::config::ReflexMode::Off;
+
+    if (!engine::frame_hooks::Install() || !engine::swapchain_hooks::Install(startStreamline)) {
         return 0;
     }
 

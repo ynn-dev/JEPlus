@@ -6,6 +6,9 @@
 namespace core::paths {
     std::filesystem::path GetGameExePath();
 
+    // directory containing the game executable
+    std::filesystem::path GetGameDirectory();
+
     // get a file from the game path (ex. a DLL)
     std::filesystem::path GetGameFilePath(std::wstring_view name);
 
