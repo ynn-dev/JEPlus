@@ -149,10 +149,7 @@ static DWORD WINAPI MainThread(void*) {
         return 0;
     }
 
-    // config::Load turns Reflex on whenever Frame Generation is enabled, so Reflex off means neither feature is wanted
-    const bool startStreamline = config.nv_reflex_mode != core::config::ReflexMode::Off;
-
-    if (!engine::frame_hooks::Install() || !engine::swapchain_hooks::Install(startStreamline)) {
+    if (!engine::frame_hooks::Install() || !engine::swapchain_hooks::Install(config.nv_reflex_mode)) {
         return 0;
     }
 

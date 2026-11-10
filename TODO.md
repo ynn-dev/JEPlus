@@ -1,1 +1,2 @@
-Next up: implement reflex markers
+- add a toggle for the DLSS Super Resoltuion upgrade in the config file
+- add DLSS frame generation

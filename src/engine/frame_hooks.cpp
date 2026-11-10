@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "core/memory.h"
 #include "engine/offsets.h"
+#include "nvidia/reflex.h"
 
 #include <safetyhook.hpp>
 
@@ -19,11 +20,15 @@ namespace engine::frame_hooks {
     static safetyhook::MidHook presentEndHook;
 
     static int64_t __fastcall FrameInput_Detour() {
+        nvidia::reflex::BeginFrame();
         return orgFrameInput.call<int64_t>();
     }
 
     static int64_t __fastcall RenderSubmit_Detour(void* manager) {
-        return orgRenderSubmit.call<int64_t>(manager);
+        nvidia::reflex::BeginSubmit();
+        const auto result = orgRenderSubmit.call<int64_t>(manager);
+        nvidia::reflex::EndSubmit();
+        return result;
     }
 
     static void* __fastcall DlssEvaluate_Detour(void* context, void* parameters, unsigned frameIndex, char reset) {
@@ -31,11 +36,17 @@ namespace engine::frame_hooks {
     }
 
     // No branch lands inside this call, so a mid-hook can relocate it
-    static void RenderBegin_Detour(safetyhook::Context&) {}
+    static void RenderBegin_Detour(safetyhook::Context&) {
+        nvidia::reflex::EndSimulation();
+    }
 
-    static void PresentStart_Detour(safetyhook::Context&) {}
+    static void PresentStart_Detour(safetyhook::Context&) {
+        nvidia::reflex::BeginPresent();
+    }
 
-    static void PresentEnd_Detour(safetyhook::Context&) {}
+    static void PresentEnd_Detour(safetyhook::Context&) {
+        nvidia::reflex::EndPresent();
+    }
 
     bool Install() {
         using core::memory::GetAddress;

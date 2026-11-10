@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "core/paths.h"
 #include "engine/engine.h"
+#include "nvidia/reflex.h"
 
 #include <Windows.h>
 #include <d3d12.h>
@@ -13,6 +14,7 @@
 #include <sl_security.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -20,6 +22,10 @@
 namespace nvidia::streamline {
     static PFun_slIsFeatureLoaded* slIsFeatureLoaded = nullptr;
     static PFun_slSetFeatureLoaded* slSetFeatureLoaded = nullptr;
+
+    // using an atomic primitive here to avoid thread headaches in the future
+    static ReflexFunctions reflexFunctions{};
+    static std::atomic<const ReflexFunctions*> reflex{nullptr};
 
     // keep both the game and the streamline swapchain to allow switching between them
     static IDXGIFactory2* nativeFactory = nullptr;
@@ -43,14 +49,54 @@ namespace nvidia::streamline {
     static bool EnsureLoaded(sl::Feature feature, const char* name) {
         bool loaded = false;
 
-        if (slIsFeatureLoaded(feature, loaded) == sl::Result::eOk && loaded) {
+        slIsFeatureLoaded(feature, loaded);
+
+        if (loaded) {
             return true;
         }
 
         return Succeeded(name, slSetFeatureLoaded(feature, true));
     }
 
-    static void Start() {
+    static bool ResolveReflex(HMODULE module) {
+        const auto slGetFeatureFunction = GetExport<PFun_slGetFeatureFunction>(module, "slGetFeatureFunction");
+        const auto slGetNewFrameToken = GetExport<PFun_slGetNewFrameToken>(module, "slGetNewFrameToken");
+
+        if (slGetFeatureFunction == nullptr || slGetNewFrameToken == nullptr) {
+            spdlog::error("Streamline: sl.interposer.dll lacks slGetFeatureFunction or slGetNewFrameToken");
+            return false;
+        }
+
+        void* sleep = nullptr;
+        void* setOptions = nullptr;
+        void* setMarker = nullptr;
+        slGetFeatureFunction(sl::kFeatureReflex, "slReflexSleep", sleep);
+        slGetFeatureFunction(sl::kFeatureReflex, "slReflexSetOptions", setOptions);
+        slGetFeatureFunction(sl::kFeaturePCL, "slPCLSetMarker", setMarker);
+
+        if (sleep == nullptr || setOptions == nullptr || setMarker == nullptr) {
+            spdlog::error(
+                "Streamline: missing Reflex functions: slReflexSleep={} slReflexSetOptions={} "
+                "slPCLSetMarker={}",
+                sleep, setOptions, setMarker);
+            return false;
+        }
+
+        const ReflexFunctions functions{
+            .getNewFrameToken = slGetNewFrameToken,
+            .sleep = reinterpret_cast<PFun_slReflexSleep*>(sleep),
+            .setOptions = reinterpret_cast<PFun_slReflexSetOptions*>(setOptions),
+            .setMarker = reinterpret_cast<PFun_slPCLSetMarker*>(setMarker),
+        };
+
+        reflexFunctions = functions;
+        reflex.store(&reflexFunctions, std::memory_order_release);
+        spdlog::debug("Streamline: Reflex functions resolved: slReflexSleep={} slReflexSetOptions={} slPCLSetMarker={}",
+                      sleep, setOptions, setMarker);
+        return true;
+    }
+
+    static void Start(core::config::ReflexMode reflexMode) {
         auto* device = engine::GetDevice();
         auto* factory = engine::GetFactory();
 
@@ -141,9 +187,13 @@ namespace nvidia::streamline {
             return;
         }
 
-        if (!EnsureLoaded(sl::kFeatureReflex, "loading Reflex")) {
+        // early return if Reflex is not available, as it's required for FG
+        if (!EnsureLoaded(sl::kFeatureReflex, "loading Reflex") || !ResolveReflex(module)) {
             return;
         }
+
+        // TODO: works for now, add live switching in the future?
+        reflex::SetOptions(reflexMode);
 
         // RTX 20 and 30 series: Reflex works, but there's no DLSS Frame Generation, so the swapchain is never switched
         // TODO: check if integrating something like MFG unlocker in the mod could work, or atleast allow support for it
@@ -195,11 +245,15 @@ namespace nvidia::streamline {
         return true;
     }
 
-    void Init() {
+    const ReflexFunctions* GetReflexFunctions() {
+        return reflex.load(std::memory_order_acquire);
+    }
+
+    void Init(core::config::ReflexMode reflexMode) {
         static bool attempted = false;
 
         if (!std::exchange(attempted, true)) {
-            Start();
+            Start(reflexMode);
         }
     }
 }  // namespace nvidia::streamline
