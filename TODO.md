@@ -1,2 +1,3 @@
 - add a toggle for the DLSS Super Resoltuion upgrade in the config file
 - add DLSS frame generation
+- refactor enginge folder; extract hooks into their own folder/namespace?
