@@ -32,7 +32,7 @@ STREAMLINE_FILES = [
 
 def main() -> None:
     # build ASI
-    subprocess.run(["uv", "run", "tools/build.py", "Release"], cwd=ROOT, check=True)
+    subprocess.run(["uv", "run", "scripts/build.py", "Release"], cwd=ROOT, check=True)
 
     # download nvidia streamline sdk if it hasn't been cached
     sdk_name = f"streamline-sdk-{STREAMLINE_TAG}.zip"

@@ -9,10 +9,10 @@ A mod that adds NVIDIA DLSS Frame Generation and NVIDIA Reflex to *Judgment* (20
 Requires MSVC and uv
 
 ```powershell
-uv run tools\build.py Release
+uv run scripts\package.py
 ```
 
-The result can be found in `build\Release\JEPlus.asi`.
+The result can be found in `build\JEPlus.zip`.
 
 ## Credits
 
