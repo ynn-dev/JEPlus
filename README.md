@@ -1,6 +1,6 @@
 # JEPlus
 
-A mod that adds NVIDIA DLSS Frame Generation and NVIDIA Reflex to *Judgment* (2018).
+A mod that brings NVIDIA DLSS 4.5 Super Resolution, Frame Generation and NVIDIA Reflex to *Judgment* (2018).
 
 > **Status:** early development
 
@@ -12,7 +12,7 @@ Requires MSVC and uv
 uv run scripts\package.py
 ```
 
-The result can be found in `build\JEPlus.zip`.
+The final `JEPlus.zip` artifact can be found in `build` folder.
 
 ## Credits
 
@@ -22,8 +22,6 @@ JEPlus is built with these open-source libraries:
 - [Glaze](https://github.com/stephenberry/glaze)
 - [SafetyHook](https://github.com/cursey/safetyhook)
 - [NVIDIA Streamline](https://github.com/NVIDIA-RTX/Streamline)
-
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for their licenses and the NVIDIA runtime files.
 
 ## License
 
