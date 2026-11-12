@@ -1,6 +1,10 @@
 # NVIDIA Reflex: "off", "on" or "on_boost"
 nv_reflex_mode = "on"
 
+# DLSS Super Resolution upgrade: "off" or "on"
+# Note: "on" upgrades the DLSS SR version from 2.4 to 4.5
+dlss_sr_upgrade = "on"
+
 # DLSS Frame Generation: "disabled", "2x", "3x", "4x", "5x", "6x" or "dynamic"
 # Note: if FG is enabled but Reflex is not, Reflex will automatically be set to "on"
 dlss_fg_mode = "disabled"

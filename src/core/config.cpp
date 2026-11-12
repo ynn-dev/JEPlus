@@ -18,6 +18,12 @@ struct glz::meta<FrameGenerationMode> {
 };
 
 template <>
+struct glz::meta<SuperResolutionUpgrade> {
+    using enum SuperResolutionUpgrade;
+    static constexpr auto value = enumerate("off", Off, "on", On);
+};
+
+template <>
 struct glz::meta<ReflexMode> {
     using enum ReflexMode;
     static constexpr auto value = enumerate("off", Off, "on", On, "on_boost", OnBoost);
@@ -44,7 +50,8 @@ namespace core::config {
     }
 
     void Log(const Config& config) {
-        spdlog::info("Mod Config: Reflex Mode: {} - DLSS FG Mode: {}", glz::get_enum_name(config.nv_reflex_mode),
+        spdlog::info("Mod Config: Reflex Mode: {} - DLSS SR Upgrade: {} - DLSS FG Mode: {}",
+                     glz::get_enum_name(config.nv_reflex_mode), glz::get_enum_name(config.dlss_sr_upgrade),
                      glz::get_enum_name(config.dlss_fg_mode));
     }
 }  // namespace core::config

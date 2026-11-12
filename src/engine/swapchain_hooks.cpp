@@ -15,7 +15,7 @@ namespace engine::swapchain_hooks {
 
     static safetyhook::InlineHook orgSwapchainCreate;
     static safetyhook::MidHook createSwapChainCallHook;
-    static core::config::ReflexMode reflexMode = core::config::ReflexMode::Off;
+    static core::config::Config config{};
     static bool streamlineSwapchain = false;
 
     static void CreateSwapChainForHwnd_AddWaitableFlag(safetyhook::Context& ctx) {
@@ -34,9 +34,10 @@ namespace engine::swapchain_hooks {
     static int64_t __fastcall SwapchainCreate_Detour(void* manager, void* parameters) {
         spdlog::debug("Swapchain create (manager {})", manager);
 
-        // if reflex is inactive, FG is automatically inactive and thus there is no need for streamline
-        if (reflexMode != core::config::ReflexMode::Off) {
-            nvidia::streamline::Init(reflexMode);
+        // streamline is needed only if any one of the features are enabled
+        if (config.nv_reflex_mode != core::config::ReflexMode::Off ||
+            config.dlss_sr_upgrade == core::config::SuperResolutionUpgrade::On) {
+            nvidia::streamline::Init(config);
             streamlineSwapchain = nvidia::streamline::UseUpgradedFactory();
         }
 
@@ -46,8 +47,8 @@ namespace engine::swapchain_hooks {
         return result;
     }
 
-    bool Install(core::config::ReflexMode mode) {
-        reflexMode = mode;
+    bool Install(const core::config::Config& modConfig) {
+        config = modConfig;
         orgSwapchainCreate =
             safetyhook::create_inline(core::memory::GetAddress(SwapchainCreateOffset), SwapchainCreate_Detour);
 

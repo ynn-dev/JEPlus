@@ -52,7 +52,10 @@ def main() -> None:
         for name in ["JEPlus.toml", "mod-meta.yaml", "mod-image.png"]:
             archive.write(ROOT / "assets" / name, f"JEPlus/{name}")
         for path in STREAMLINE_FILES:
-            archive.writestr(f"JEPlus/bin/{Path(path).name}", sdk.read(path))
+            name = Path(path).name
+            # make DLSS SR have its own folder so that it can be handled separately to allow for toggleable SR upgrade
+            folder = "bin/dlss_sr" if name == "nvngx_dlss.dll" else "bin"
+            archive.writestr(f"JEPlus/{folder}/{name}", sdk.read(path))
 
     print(f"Done. Packaged {package}")
 

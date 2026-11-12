@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace nvidia::streamline {
     static PFun_slIsFeatureLoaded* slIsFeatureLoaded = nullptr;
@@ -96,7 +97,7 @@ namespace nvidia::streamline {
         return true;
     }
 
-    static void Start(core::config::ReflexMode reflexMode) {
+    static void Start(const core::config::Config& config) {
         auto* device = engine::GetDevice();
         auto* factory = engine::GetFactory();
 
@@ -144,7 +145,26 @@ namespace nvidia::streamline {
         const std::wstring pluginPath = pluginDirectory.wstring();
         const std::wstring gamePath = core::paths::GetGameDirectory().wstring();
         const std::wstring logPath = modDirectory.wstring();
-        const wchar_t* pluginPaths[] = {pluginPath.c_str(), gamePath.c_str()};
+
+        // if DLSS SR upgrade is enabled, add the updated DLSS SR DLL folder to the list of paths, otherwise the game
+        // will simply load the one shipped with it
+        const auto upgradeDirectory = pluginDirectory / L"dlss_sr";
+        const std::wstring upgradePath = upgradeDirectory.wstring();
+        const bool upgradeSr = config.dlss_sr_upgrade == core::config::SuperResolutionUpgrade::On;
+
+        if (upgradeSr && !std::filesystem::is_regular_file(upgradeDirectory / L"nvngx_dlss.dll")) {
+            spdlog::warn("Streamline: {} has no nvngx_dlss.dll, so DLSS SR isn't upgraded", upgradeDirectory.string());
+        }
+
+        std::vector<const wchar_t*> pluginPaths{pluginPath.c_str()};
+
+        if (upgradeSr) {
+            pluginPaths.push_back(upgradePath.c_str());
+        }
+
+        pluginPaths.push_back(gamePath.c_str());
+
+        spdlog::info("Streamline: DLSS SR upgrade: {}", upgradeSr ? "on" : "off");
 
         // make streamline only load reflex and FG as SR is already loaded by the game own wrapper
         static constexpr std::array Features{sl::kFeatureDLSS_G, sl::kFeatureReflex};
@@ -155,8 +175,8 @@ namespace nvidia::streamline {
 #else
         preferences.logLevel = sl::LogLevel::eVerbose;
 #endif
-        preferences.pathsToPlugins = pluginPaths;
-        preferences.numPathsToPlugins = static_cast<uint32_t>(std::size(pluginPaths));
+        preferences.pathsToPlugins = pluginPaths.data();
+        preferences.numPathsToPlugins = static_cast<uint32_t>(pluginPaths.size());
         preferences.pathToLogsAndData = logPath.c_str();
 
         // enable the factory proxy to allow to easily pointer swap the factory
@@ -193,7 +213,7 @@ namespace nvidia::streamline {
         }
 
         // TODO: works for now, add live switching in the future?
-        reflex::SetOptions(reflexMode);
+        reflex::SetOptions(config.nv_reflex_mode);
 
         // RTX 20 and 30 series: Reflex works, but there's no DLSS Frame Generation, so the swapchain is never switched
         // TODO: check if integrating something like MFG unlocker in the mod could work, or atleast allow support for it
@@ -249,11 +269,11 @@ namespace nvidia::streamline {
         return reflex.load(std::memory_order_acquire);
     }
 
-    void Init(core::config::ReflexMode reflexMode) {
+    void Init(const core::config::Config& config) {
         static bool attempted = false;
 
         if (!std::exchange(attempted, true)) {
-            Start(reflexMode);
+            Start(config);
         }
     }
 }  // namespace nvidia::streamline

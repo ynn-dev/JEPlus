@@ -14,7 +14,7 @@ namespace nvidia::streamline {
         PFun_slPCLSetMarker* setMarker;
     };
 
-    void Init(core::config::ReflexMode reflexMode);
+    void Init(const core::config::Config& config);
     bool UseUpgradedFactory();
 
     // Null until Streamline runs with Reflex loaded, with or without DLSS Frame Generation

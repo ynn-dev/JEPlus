@@ -149,7 +149,7 @@ static DWORD WINAPI MainThread(void*) {
         return 0;
     }
 
-    if (!engine::frame_hooks::Install() || !engine::swapchain_hooks::Install(config.nv_reflex_mode)) {
+    if (!engine::frame_hooks::Install() || !engine::swapchain_hooks::Install(config)) {
         return 0;
     }
 
