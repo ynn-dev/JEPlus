@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "core/memory.h"
 #include "engine/offsets.h"
+#include "nvidia/dlssg.h"
 #include "nvidia/streamline.h"
 
 #include <dxgi1_2.h>
@@ -44,6 +45,11 @@ namespace engine::swapchain_hooks {
         const auto result = orgSwapchainCreate.call<int64_t>(manager, parameters);
         spdlog::info("Swapchain created: {} (result 0x{:08X})", streamlineSwapchain ? "Streamline" : "native",
                      static_cast<uint32_t>(result));
+
+        if (streamlineSwapchain) {
+            nvidia::dlssg::Reset();
+        }
+
         return result;
     }
 

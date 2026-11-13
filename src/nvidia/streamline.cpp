@@ -24,9 +24,12 @@ namespace nvidia::streamline {
     static PFun_slIsFeatureLoaded* slIsFeatureLoaded = nullptr;
     static PFun_slSetFeatureLoaded* slSetFeatureLoaded = nullptr;
 
+    // TODO: there's gotta be a more elegant way to handle this
     // using an atomic primitive here to avoid thread headaches in the future
     static ReflexFunctions reflexFunctions{};
     static std::atomic<const ReflexFunctions*> reflex{nullptr};
+    static DlssgFunctions dlssgFunctions{};
+    static std::atomic<const DlssgFunctions*> dlssg{nullptr};
 
     // keep both the game and the streamline swapchain to allow switching between them
     static IDXGIFactory2* nativeFactory = nullptr;
@@ -59,6 +62,7 @@ namespace nvidia::streamline {
         return Succeeded(name, slSetFeatureLoaded(feature, true));
     }
 
+    // TODO: refactor ResolveReflex and ResolveFrameGeneration because theres gotta be a better way
     static bool ResolveReflex(HMODULE module) {
         const auto slGetFeatureFunction = GetExport<PFun_slGetFeatureFunction>(module, "slGetFeatureFunction");
         const auto slGetNewFrameToken = GetExport<PFun_slGetNewFrameToken>(module, "slGetNewFrameToken");
@@ -94,6 +98,35 @@ namespace nvidia::streamline {
         reflex.store(&reflexFunctions, std::memory_order_release);
         spdlog::debug("Streamline: Reflex functions resolved: slReflexSleep={} slReflexSetOptions={} slPCLSetMarker={}",
                       sleep, setOptions, setMarker);
+        return true;
+    }
+
+    static bool ResolveFrameGeneration(HMODULE module) {
+        const auto slGetFeatureFunction = GetExport<PFun_slGetFeatureFunction>(module, "slGetFeatureFunction");
+
+        if (slGetFeatureFunction == nullptr) {
+            spdlog::error("Streamline: sl.interposer.dll lacks slGetFeatureFunction");
+            return false;
+        }
+
+        void* setOptions = nullptr;
+        void* getState = nullptr;
+        slGetFeatureFunction(sl::kFeatureDLSS_G, "slDLSSGSetOptions", setOptions);
+        slGetFeatureFunction(sl::kFeatureDLSS_G, "slDLSSGGetState", getState);
+
+        if (setOptions == nullptr || getState == nullptr) {
+            spdlog::error("Streamline: missing DLSS-G functions: slDLSSGSetOptions={} slDLSSGGetState={}", setOptions,
+                          getState);
+            return false;
+        }
+
+        dlssgFunctions = DlssgFunctions{
+            .setOptions = reinterpret_cast<PFun_slDLSSGSetOptions*>(setOptions),
+            .getState = reinterpret_cast<PFun_slDLSSGGetState*>(getState),
+        };
+        dlssg.store(&dlssgFunctions, std::memory_order_release);
+        spdlog::debug("Streamline: DLSS-G functions resolved: slDLSSGSetOptions={} slDLSSGGetState={}", setOptions,
+                      getState);
         return true;
     }
 
@@ -166,8 +199,12 @@ namespace nvidia::streamline {
 
         spdlog::info("Streamline: DLSS SR upgrade: {}", upgradeSr ? "on" : "off");
 
-        // make streamline only load reflex and FG as SR is already loaded by the game own wrapper
-        static constexpr std::array Features{sl::kFeatureDLSS_G, sl::kFeatureReflex};
+        const bool wantFrameGeneration = config.dlss_fg_mode != core::config::FrameGenerationMode::Disabled;
+        std::vector<sl::Feature> Features{sl::kFeatureReflex};
+
+        if (wantFrameGeneration) {
+            Features.push_back(sl::kFeatureDLSS_G);
+        }
 
         sl::Preferences preferences{};
 #ifdef NDEBUG
@@ -198,9 +235,7 @@ namespace nvidia::streamline {
         adapter.deviceLUIDSizeInBytes = sizeof(luid);
 
         const auto reflexSupport = slIsFeatureSupported(sl::kFeatureReflex, adapter);
-        const auto frameGenerationSupport = slIsFeatureSupported(sl::kFeatureDLSS_G, adapter);
-        spdlog::info("Streamline: Reflex support: {}, DLSS Frame Generation support: {}",
-                     sl::getResultAsStr(reflexSupport), sl::getResultAsStr(frameGenerationSupport));
+        spdlog::info("Streamline: Reflex support: {}", sl::getResultAsStr(reflexSupport));
 
         if (reflexSupport != sl::Result::eOk) {
             spdlog::warn("Streamline: Reflex isn't supported on this GPU");
@@ -215,22 +250,24 @@ namespace nvidia::streamline {
         // TODO: works for now, add live switching in the future?
         reflex::SetOptions(config.nv_reflex_mode);
 
-        // RTX 20 and 30 series: Reflex works, but there's no DLSS Frame Generation, so the swapchain is never switched
-        // TODO: check if integrating something like MFG unlocker in the mod could work, or atleast allow support for it
-        if (frameGenerationSupport != sl::Result::eOk) {
-            spdlog::info("Streamline ready: Reflex only");
-            return;
+        // TODO: check if integrating MFG unlocker is possible to allow RTX 20 and 30 series cards to run frame gen
+        bool frameGeneration = false;
+
+        if (wantFrameGeneration) {
+            const auto frameGenerationSupport = slIsFeatureSupported(sl::kFeatureDLSS_G, adapter);
+            spdlog::info("Streamline: DLSS Frame Generation support: {}", sl::getResultAsStr(frameGenerationSupport));
+
+            frameGeneration = frameGenerationSupport == sl::Result::eOk &&
+                              EnsureLoaded(sl::kFeatureDLSS_G, "loading DLSS Frame Generation") &&
+                              ResolveFrameGeneration(module);
         }
 
-        if (!EnsureLoaded(sl::kFeatureDLSS_G, "loading DLSS Frame Generation")) {
-            return;
-        }
-
-        // the game keeps using its own factory for now
+        // slUpgradeInterface overwrites the pointer passed to it, so we pass a copy instead of the original
         IDXGIFactory2* upgraded = factory;
 
         if (!Succeeded("slUpgradeInterface on the DXGI factory",
                        slUpgradeInterface(reinterpret_cast<void**>(&upgraded)))) {
+            dlssg.store(nullptr, std::memory_order_release);
             return;
         }
 
@@ -238,7 +275,7 @@ namespace nvidia::streamline {
         upgradedFactory = upgraded;
         spdlog::debug("Streamline: factory {} upgraded to {}", static_cast<void*>(nativeFactory),
                       static_cast<void*>(upgradedFactory));
-        spdlog::info("Streamline ready: Reflex and DLSS Frame Generation");
+        spdlog::info("Streamline ready: {}", frameGeneration ? "Reflex and DLSS Frame Generation" : "Reflex only");
     }
 
     bool UseUpgradedFactory() {
@@ -267,6 +304,10 @@ namespace nvidia::streamline {
 
     const ReflexFunctions* GetReflexFunctions() {
         return reflex.load(std::memory_order_acquire);
+    }
+
+    const DlssgFunctions* GetDlssgFunctions() {
+        return dlssg.load(std::memory_order_acquire);
     }
 
     void Init(const core::config::Config& config) {
