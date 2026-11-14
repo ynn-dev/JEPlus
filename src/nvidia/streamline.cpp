@@ -177,7 +177,7 @@ namespace nvidia::streamline {
 
         const std::wstring pluginPath = pluginDirectory.wstring();
         const std::wstring gamePath = core::paths::GetGameDirectory().wstring();
-        const std::wstring logPath = modDirectory.wstring();
+        const std::wstring logPath = core::paths::GetLogDirectory().wstring();
 
         // if DLSS SR upgrade is enabled, add the updated DLSS SR DLL folder to the list of paths, otherwise the game
         // will simply load the one shipped with it

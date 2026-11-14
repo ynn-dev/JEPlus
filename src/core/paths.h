@@ -16,5 +16,8 @@ namespace core::paths {
     std::filesystem::path GetAsiPluginDirectory();
 
     std::filesystem::path GetConfigFilePath();
+
+    // <mod dir>\logs
+    std::filesystem::path GetLogDirectory();
     std::filesystem::path GetLogFilePath();
 }  // namespace core::paths

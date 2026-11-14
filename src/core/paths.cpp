@@ -70,7 +70,11 @@ namespace core::paths {
         return GetAsiPluginDirectory() / L"JEPlus.toml";
     }
 
+    std::filesystem::path GetLogDirectory() {
+        return GetAsiPluginDirectory() / L"logs";
+    }
+
     std::filesystem::path GetLogFilePath() {
-        return GetAsiPluginDirectory() / L"JEPlus.log";
+        return GetLogDirectory() / L"JEPlus.log";
     }
 }  // namespace core::paths
